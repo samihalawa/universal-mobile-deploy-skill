@@ -1,0 +1,4 @@
+interface:
+  display_name: "Universal Mobile Deploy"
+  short_description: "Analyze the real project first, then choose Expo/EAS, Fastlane, Capacitor, or native mobile deployment correctly"
+  default_prompt: "Use $universal-mobile-deploy-skill to inspect this repo, classify the real mobile stack, reuse any existing deployment setup, install the correct missing native dependencies, and execute the right deployment path with Expo/EAS, Fastlane, Capacitor, or native tooling instead of forcing the wrong workflow."
