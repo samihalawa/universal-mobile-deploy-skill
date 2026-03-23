@@ -1,6 +1,6 @@
 ---
 name: universal-mobile-deploy-skill
-description: Analyze a real project, choose the correct mobile deployment path, install the right native dependencies, and ship with Expo/EAS, Fastlane, Capacitor, or native tooling without forcing the wrong stack.
+description: Analyze a real project, choose the correct mobile deployment path, install the right native dependencies, wire mobile release services like RevenueCat when needed, and ship with Expo/EAS, Fastlane, Capacitor, or native tooling without forcing the wrong stack.
 ---
 
 # Universal Mobile Deploy Skill
@@ -8,6 +8,8 @@ description: Analyze a real project, choose the correct mobile deployment path, 
 Use this skill when the user wants a project analyzed and then deployed or prepared for deployment to iOS and/or Android.
 
 This skill is for real project execution, not generic advice. Start by proving what the project actually is, then choose the correct deployment path.
+
+When a project can remain Expo-first without breaking required native capabilities, prefer Expo and EAS over dropping into custom native automation.
 
 ## Primary Objective
 
@@ -17,6 +19,7 @@ Take an arbitrary project and get it onto the right mobile deployment path with 
 - `bare React Native` projects should usually use native iOS/Android tooling plus `Fastlane`
 - `Capacitor` projects should usually use Capacitor sync/open plus native platform builds, optionally with Fastlane for release automation
 - `native iOS`, `native Android`, or mixed native repos should use their native build chain and Fastlane where appropriate
+- subscription and in-app purchase apps should also validate `RevenueCat`, store products, entitlements, and SDK wiring before release
 
 Do not force Fastlane onto a project just because mobile deployment was mentioned.
 
@@ -29,9 +32,12 @@ Do not force Fastlane onto a project just because mobile deployment was mentione
 - Use the root `.env` as the canonical runtime and deployment config source when the repo follows that convention.
 - Avoid hardcoded bundle IDs, Apple IDs, team IDs, package names, keystore paths, or store metadata when the repo already defines them.
 - Do not recommend Fastlane as the default answer for Expo-managed apps.
+- If the project is Expo-based and can stay Expo-based, prefer Expo/EAS first.
+- Do not bolt RevenueCat on blindly; first verify whether the app really sells subscriptions, consumables, or entitlements.
 - Do not recommend `expo prebuild` unless native customization or the existing repo state actually requires it.
 - Do not generate duplicate deployment systems when the repo already has one that works.
 - Verify commands, credentials wiring, and platform prerequisites before claiming the pipeline is ready.
+- Verify external mobile services such as RevenueCat, push, crash reporting, and deep-link config when the release flow depends on them.
 
 ## Phase 1: Project Detection
 
@@ -44,11 +50,13 @@ Inspect the real repo first. At minimum check:
 - `capacitor.config.ts`, `capacitor.config.js`, or `capacitor.config.json`
 - `ios/` and `android/`
 - `fastlane/`
+- `RevenueCat` or purchases-related SDKs in `package.json`, native files, or env
 - `Gemfile`
 - `Podfile`
 - `build.gradle*`, `settings.gradle*`, `gradle.properties`
 - Xcode project/workspace files
 - CI config files that already build or submit mobile apps
+- product/paywall config, purchase hooks, subscription screens, entitlement checks, and backend webhook handling when monetization exists
 
 Classify the project into one of these buckets:
 
@@ -65,6 +73,7 @@ Default path:
 
 - `EAS Build` for cloud builds
 - `EAS Submit` for store/TestFlight submission
+- `EAS Update` only when the runtime/update strategy is explicitly safe
 - only add Fastlane if the repo already uses it for metadata, screenshots, or post-build release automation
 
 ### 2. Expo Prebuild / Bare Expo
@@ -131,6 +140,8 @@ Before adding anything, inspect whether the project already has:
 - existing lanes like `beta`, `release`, `internal`, `submit`, `screenshots`
 - existing signing assets, keystore references, or App Store Connect API key wiring
 - existing Play Console or App Store metadata folders
+- existing RevenueCat SDK usage, API keys, entitlement names, product IDs, offerings, or webhook consumers
+- existing Expo services such as EAS Update, EAS Submit, notification setup, or runtime versioning
 
 If a working deployment path already exists, prefer repairing or completing it instead of replacing it.
 
@@ -147,6 +158,8 @@ Core actions:
 - install only missing Expo-native dependencies with `expo install`
 - use `eas build` for iOS and Android builds
 - use `eas submit` for store submission when credentials and store setup are ready
+- validate whether `eas update` is part of the release strategy and whether runtime versioning is safe
+- if the app uses subscriptions or purchases, verify Expo-compatible RevenueCat setup before shipping
 
 Do not:
 
@@ -158,6 +171,7 @@ Use `expo prebuild` only if:
 - the app needs native modules unsupported in pure managed workflow
 - the repo already uses prebuild
 - the user explicitly wants native ownership
+- or store/release requirements cannot be satisfied cleanly in managed Expo
 
 ### Path B: Bare React Native + Fastlane
 
@@ -177,6 +191,7 @@ Prefer:
 
 - existing `Gemfile` + `bundle exec fastlane` if the repo already uses Bundler
 - Homebrew Fastlane only when there is no repo-managed Ruby toolchain
+- RevenueCat SDK and native purchase dependencies already chosen by the repo, instead of swapping monetization stacks
 
 ### Path C: Capacitor
 
@@ -191,6 +206,7 @@ Core actions:
 - inspect native shells for signing and version alignment
 - use native builds for verification
 - use Fastlane only where it adds value for release automation after native projects are real
+- if the app sells subscriptions, verify the Capacitor-side purchase bridge and RevenueCat/native store plugin wiring
 
 Do not:
 
@@ -206,6 +222,43 @@ Core actions:
 - verify schemes, targets, bundle IDs, flavors, signing, and store metadata
 - repair or author Fastlane config against the real native project
 - validate beta and production release flows separately
+- validate monetization SDKs such as RevenueCat or native store billing where applicable
+
+## Phase 3.5: RevenueCat And Mobile Service Setup
+
+Run this phase only when the app actually sells subscriptions, consumables, trials, or entitlement-gated features.
+
+At minimum inspect:
+
+- purchase or paywall screens
+- subscription state hooks and entitlement checks
+- product identifiers used in app code
+- `react-native-purchases`, `purchases-capacitor`, `react-native-iap`, StoreKit, Play Billing, or similar dependencies
+- backend webhooks or entitlement sync consumers
+- environment variables for RevenueCat public SDK keys and server/webhook secrets
+
+Required checks:
+
+- confirm the app uses the same product IDs in code, App Store Connect, Google Play Console, and RevenueCat
+- confirm entitlement names in code match RevenueCat exactly
+- confirm offerings are defined and that the app requests the intended offering
+- confirm iOS and Android public SDK keys are wired from the correct environment source
+- confirm restore-purchases, login/identify, logout, and anonymous-user behavior are intentional
+- confirm the app does not gate paid features on stale local state alone
+- confirm webhook handling if the backend relies on subscription status server-side
+- for Expo-based apps, confirm the RevenueCat integration path stays Expo-compatible before forcing prebuild or bare native changes
+
+Default implementation guidance:
+
+- `Expo / React Native`: prefer the official RevenueCat SDK path already compatible with the repo
+- `Capacitor`: prefer the RevenueCat Capacitor plugin when the project is already Capacitor-based
+- `native iOS / Android`: use the platform-native RevenueCat SDK only when the repo is already native
+
+Do not:
+
+- mix unrelated purchase stacks unless there is a migration plan
+- add RevenueCat without aligning store products and entitlement names first
+- claim subscription release readiness without testing purchase state resolution and restore flow
 
 ## Phase 4: Native Dependency Checklist
 
@@ -217,6 +270,8 @@ Always validate the prerequisites that match the chosen stack:
 - root `.env` and any required deployment variables
 - Apple Developer / App Store Connect credentials path
 - Google Play service account or existing Play Console auth path
+- RevenueCat keys, webhook secrets, entitlement names, and product ID mapping when monetization exists
+- release services such as EAS Update, push, crash reporting, and deep-link domains when those are part of production rollout
 
 ### iOS
 
@@ -240,12 +295,25 @@ Always validate the prerequisites that match the chosen stack:
 - EAS project linkage
 - build profiles
 - credentials status for iOS and Android
+- runtime version and update policy
+- EAS Update channel or branch strategy when over-the-air updates are used
+- Expo notifications, config plugins, and native-capability requirements when enabled
 
 ### Capacitor
 
 - web output path correctness
 - installed Capacitor platforms
 - sync status after dependency or config changes
+- plugin health for purchases, push, auth, and deep links if those features exist
+
+### RevenueCat / Purchases
+
+- product IDs match store setup
+- offerings and entitlements match app code
+- SDK keys are correct per platform
+- sandbox/test account strategy exists
+- restore flow and subscription state refresh are testable
+- backend webhook path is configured if the server consumes subscription lifecycle events
 
 ## Phase 5: Verification Before Deploy
 
@@ -257,6 +325,8 @@ Before claiming readiness or shipping:
 - verify store identifiers and version/build increments
 - verify the app can actually produce the required artifact: `.ipa`, `.aab`, `.apk`, or EAS build artifact
 - verify the submission command matches the selected distribution target: internal, TestFlight, beta, production
+- verify RevenueCat or purchase flows with the correct sandbox/test account path when monetization exists
+- verify EAS Update policy separately from binary release when Expo uses over-the-air updates
 
 ## Phase 6: Deployment Execution
 
@@ -266,16 +336,20 @@ Choose the smallest correct end-to-end path:
 - production submission only after the build and signing paths are proven
 - use existing store metadata/screenshots if already present
 - if screenshots or metadata are missing, state that gap explicitly instead of pretending release is complete
+- if purchases exist, verify product availability and entitlement resolution before store submission
+- if Expo uses EAS Update, separate binary rollout from OTA rollout and verify both intentionally
 
 ## Failure Patterns To Avoid
 
 These are the common mistakes this skill exists to prevent:
 
 - treating every mobile deployment request as “set up Fastlane”
+- treating every Expo app as “just run EAS” without checking runtime versioning, config plugins, native modules, and update policy
 - ignoring existing `eas.json`, `fastlane/`, or `capacitor.config.*`
 - adding a second deployment system without checking the first one
 - assuming a React project should become React Native
 - assuming a web app should become Capacitor when no mobile target was requested
+- adding RevenueCat without checking whether purchases already exist or whether the product catalog is aligned
 - using hardcoded IDs, team names, or secret values copied from another project
 - claiming a deploy path is complete without proving the project can build
 
@@ -286,6 +360,7 @@ When this skill is used well, the agent should be able to say, with proof:
 - what stack the project actually uses
 - why Expo/EAS, Fastlane, Capacitor, or native tooling is the right path here
 - which existing deployment assets were reused
+- which release services such as RevenueCat or EAS Update were verified or repaired
 - which dependencies or credentials were missing and how they were wired
 - what build/submission path was verified
 - what remains blocked, if anything
