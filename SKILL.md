@@ -385,3 +385,49 @@ When this skill is used well, the agent should be able to say, with proof:
 - which dependencies or credentials were missing and how they were wired
 - what build/submission path was verified
 - what remains blocked, if anything
+
+## 2026-09-19 — Merged release laws (absorbed from the app-submission, app-store-autopilot and project-lane skills)
+
+These were previously split across several overlapping deploy skills. They live here now so there is one owner for mobile release.
+
+### What "verified" means
+Live user surface only: the running app on a real device; ASC `reviewSubmissions` showing a fresh `submittedDate` + `WAITING_FOR_REVIEW` + the correct build attached; Play track reads showing the versionCode; IAP packages actually loading on device. A green build, an API 201, a dashboard setting or a successful upload is **not** shipping. Build `VALID` != approval; uploaded != submitted; TestFlight-ready != review-healthy.
+
+### Human-only gates (everything else is automatable)
+First-time app creation and signing; the Paid Apps Agreement; App Privacy publish; Play's "Send changes for review" click; attaching the **first** consumable/subscription to a version in ASC web.
+
+### Apple
+- Mint ASC JWTs with the raw 64-byte `R||S` ES256 signature. A DER signature returns `401 NOT_AUTHORIZED` and looks exactly like a revoked key.
+- Guideline 3.1.2(c): subscription title, period and localized price **plus** functional EULA and privacy links on the purchase surface itself. ASC metadata being compliant is not enough.
+- A distinct **Restore Purchases** control on *every* IAP surface; auto-restore on launch does not count (3.1.1).
+- First consumable/subscription must be attached on the version page in ASC web; standalone submission returns 409.
+- Cancelling a blocking submission flips the version and **drops the attached build**; re-attach and wait for the state flip before adding the review item (else 409 `ENTITY_STATE_INVALID`). Use relationship `appStoreVersion` (the name `appStoreVersionForReview` 409s).
+- Metadata-only blockers: fix in ASC and resubmit the **same** valid build; never rebuild for metadata.
+- Approval != public listing: `appAvailabilityV2` must exist with territories enabled; verify the public storefront.
+- Age rating declarations live at `/v1/appInfos/{appInfoId}/ageRatingDeclaration` — **not** on `/v1/apps/{id}` or `/v1/appStoreVersions/{id}` (both 404 `PATH_ERROR`). Read the `platform` attribute before treating any version as blocking state: a `MAC_OS` draft never blocks iOS.
+- Reviewers use iPhone 17 Pro Max and iPad Air 11-inch (M3); test iPad explicitly. Frozen state >~24h = wedged: cancel and resubmit.
+
+### Google Play
+- The privacy policy must name the app, the developer and the legal entity exactly as the store listing does — a mismatch is rejected as "Invalid Privacy Policy".
+- `assetlinks.json` must carry the **Play App Signing** SHA-256 (`generatedApks.certificateSha256Hash`); the upload key never signs installed builds.
+- After a rejection: commit edits with `changesNotSentForReview=true`, promote the fixed release, then the human "Send changes for review" click queues it. Trust the tracks API over the rejection email's versionCode.
+- First-publish draft apps accept only `status: draft` via the edits API; Data safety, IARC, Ads and Sign-in are Console-only; a greyed IARC "Next" is one unanswered radio pair.
+- Google Play references must not appear in an iOS build (Guideline 2.3.10): keep every store mention platform-conditional, and gate cross-store download buttons on the native platform rather than the browser.
+
+### Build systems
+- Never git-track `ios/` or `android/` in a CNG/Expo repo — a single tracked file makes every EAS build skip `expo prebuild` (no Podfile, `spawn pod ENOENT`). Capacitor repos are the opposite: those directories are tracked and must stay synced with `npx cap sync`.
+- Do not pin an Xcode 26 image for Expo SDK 57: `expo-modules-jsi` uses `weak let`, rejected by Swift 6. Use the SDK-aligned image (`sdk-57`).
+- Extension targets (share/widget) need the remote-credential profile.
+- `npx expo install --fix` before local builds; never run two local EAS builds concurrently.
+- If `eas submit` is opaque, upload the existing artifact with `xcrun altool --upload-app` — do not rebuild first.
+- One native release per session/day for Capacitor lanes; never run two fastlane lanes concurrently (shared `dist/` and the Play edit API produce "This edit has expired").
+- A documented local lane can be broken by the OS toolchain: on macOS 26 system Ruby 2.6 reports `universal-darwin26` while the Xcode 26.5 SDK ships only `universal-darwin25` headers, so `bundle exec fastlane` fails — **and pnpm still exits 0**. Read the log, not the exit code; use the standalone homebrew fastlane as the substitute.
+
+### Regression guards that saved real releases
+- Never change a shipped response shape to carry extra data: if installed clients map over an array, add a sibling endpoint instead of wrapping the payload.
+- Verify a "dead" flag before deleting it — a flag can have one live caller in an unrelated path.
+- Remove source-guard residue (comments naming deleted identifiers) or the test suite stays red.
+- When several agents share one worktree, commit with an isolated index (`GIT_INDEX_FILE` + `read-tree`/`write-tree`/`commit-tree`/`update-ref`) and repair the real index afterwards; a plain `git commit` can resurrect another agent's deleted work from a stale shared index.
+
+### Closure format
+One line per layer, no narrative: `WEB: <hash> live | iOS: <build> WAITING_FOR_REVIEW|skipped(<why>) | Android: <versionCode> <track>|skipped(<why>)`, plus the SHIPPED/EVIDENCE line. Unresolved work is `CHECKPOINT`/`BLOCKED` with the exact count — never padded into a report.
