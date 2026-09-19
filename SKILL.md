@@ -431,3 +431,11 @@ First-time app creation and signing; the Paid Apps Agreement; App Privacy publis
 
 ### Closure format
 One line per layer, no narrative: `WEB: <hash> live | iOS: <build> WAITING_FOR_REVIEW|skipped(<why>) | Android: <versionCode> <track>|skipped(<why>)`, plus the SHIPPED/EVIDENCE line. Unresolved work is `CHECKPOINT`/`BLOCKED` with the exact count — never padded into a report.
+
+## Related specialist skills (do not duplicate)
+
+- Coolify / DNS / DB / auto-deploy: `coolify-megawebs-deploy-domain-db-autodeploy-skill`
+- Whole-project analytics/SEO/growth umbrella: `complete-project-deploy-analytics-growth-skill`
+- Store listing media: `app-store-media-generator-skill`
+- Preferred ASC CLI when Helm is installed: `helm-asc` (command -v helm-asc, else /opt/homebrew/bin/helm-asc, else Helm.app Helpers). Query IDs before mutating; --agent on obvious workflows.
+- Device verification: `ios-automation` / `android-automation` (Midscene; never background, one command at a time).
